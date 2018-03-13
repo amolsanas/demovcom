@@ -1,0 +1,400 @@
+<?php
+
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\file\Entity\File;
+
+/**
+ * @File
+ * Example custom module for Drupal 8.
+ * @author Rakesh James
+ */
+
+/**
+ * Implementing hook_menu().
+ */
+function Compliancegpsmodule_menu() {
+    // The paths given here need to match the ones in example.routing.yml exactly.
+    $items['/mypage/page'] = array(
+        'title' => 'First page',
+        'description' => 'This is a example page.',
+        // The name of the route from example.routing.yml
+        'route' => 'Compliancegpsmodule.my_page',
+    );
+    return $items;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function Compliancegpsmodule_form_user_login_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+    // Alter login form and add own custom submit handler.
+    $form['#submit'][] = '_Compliancegpsmodule_user_login_form_submit';
+}
+
+/**
+ * Custom submit handler for login form.
+ */
+function _Compliancegpsmodule_user_login_form_submit($form, FormStateInterface $form_state) {
+    // check roles of the current user
+    $roles = \Drupal::currentUser()->getRoles();
+    $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+    $langcode = $language == "en" ? $language : "zh-hans";
+    $existingUser = \Drupal\user\Entity\User::load(\Drupal::currentUser()->id());
+    // update some user property
+    $existingUser->langcode = $langcode;
+    $existingUser->preferred_langcode = $langcode;
+    // save existing user
+    $existingUser->save((object) array('uid' => $existingUser->uid), (array) $existingUser);
+    $roles = \Drupal::currentUser()->getRoles();
+    // Deny access to the field if not an administrator
+    if (in_array("compliancegps_admin", $roles)) {
+        $form_state->setRedirect('entity.node.canonical', array('node' => 2));
+    } else {
+        $form_state->setRedirect('view.homepage.page_1');
+    }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function Compliancegpsmodule_form_taxonomy_term_countries_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+    $form['#attributes']['class'][] = 'my-custom-class-add-country';
+    $form['field_master_country_relation']['#attributes']['class'][] = 'my-custom-class-master-country';
+    $form['field_select_currency']['#attributes']['class'][] = 'my-custom-class-select-currency';
+      $mrkup = '<div class="mrkup">';
+    foreach ($form['field_master_country_relation']['widget']['#options'] as $term_id => $term_name) {
+        if (is_numeric($term_id)) {
+            $term_object = taxonomy_term_load($term_id);
+            $entity_vocabulary = $term_object->getVocabularyId();
+            $entity_type = $term_object->getentityTypeId();
+            $term_name = \Drupal\taxonomy\Entity\Term::load($term_id)->get('name')->value;
+
+            $target_id = \Drupal\taxonomy\Entity\Term::load($term_id)->get('field_master_country_flag')->getValue();
+            $image_url = File::load($target_id[0]['target_id'])->url();
+            $mrkup .= "<div id = 'ctryimg-" . $term_id . "' class= 'ctry-img' ><img src='" . $image_url . "'></div>";
+//            $image_url = $image_url->url();
+        }
+    }
+    $mrkup .= "</div>";
+    $form['form_item'] = array(
+        '#type' => 'item',
+        '#title' => t('Country flag'),
+        '#markup' => $mrkup, // Add markup before form item
+        '#weight' => 10,
+    );
+
+    $form['name']['widget'][0]['value']['#required'] = 0;
+
+    // Alter login form and add own custom submit handler.
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_taxonomy_term_countries_form_submit';
+}
+
+/**
+ * Custom submit handler for login form.
+ */
+function _Compliancegpsmodule_taxonomy_term_countries_form_submit($form, FormStateInterface $form_state) {
+
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Country %name has been added!", ["%name" => $form_state->getValue('name')[0]['value']]), 'status');
+        }
+    }
+
+    $countryTid = $form_state->getValue('tid');
+    $categoriesTree = \Drupal::entityManager()->getStorage('taxonomy_term')->loadTree('categories');
+    $query = db_query("select count(field_category_country_target_id) as cntry_cnt FROM {taxonomy_term__field_category_country} where field_category_country_target_id = " . $countryTid);
+    $records = $query->fetchAll();
+    if (isset($records[0]->cntry_cnt) && $records[0]->cntry_cnt == 0) {
+        foreach ($categoriesTree as $index => $termData) {
+            $tempTermData = \Drupal\taxonomy\Entity\Term::load($termData->tid);
+            $tempTermData->field_category_country->appendItem(['target_id' => $countryTid]);
+            $tempTermData->Save();
+        }
+    }
+//	$form_state->setRedirect('view.admin_country_list.page_1');
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function Compliancegpsmodule_form_taxonomy_term_categories_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+
+    // Alter login form and add own custom submit handler.
+    $form['relations']['#open'] = true;
+    $form['relations']['parent']['#title'] = "Parent Category";
+    $form['myoperation'] = array(
+        '#type' => 'value',
+        '#value' => $form_state->getFormObject()->getEntity()->isNew(),
+    );
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_taxonomy_term_categories_form_submit';
+}
+
+/**
+ * Custom submit handler for add country form.
+ */
+function _Compliancegpsmodule_taxonomy_term_categories_form_submit($form, FormStateInterface $form_state) {
+
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            if ($form_state->getValue('myoperation')) {
+                drupal_set_message(t("Category %name has been added!", ["%name" => $form_state->getValue('name')[0]['value']]), 'status');
+            } else {
+                drupal_set_message(t("Category %name has been edited!", ["%name" => $form_state->getValue('name')[0]['value']]), 'status');
+            }
+        }
+    }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function Compliancegpsmodule_form_taxonomy_term_countries_delete_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+    $form['actions']['submit']['#attributes']['class'][]  = 'custom-class-country-delete';
+    $form['actions']['cancel']['#attributes']['class'][]  = 'custom-class-country-cancel';
+    $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+
+    $form['description']['#markup'] = $language == "en" ? "Are you sure you want to delete the country? This action cannot be undone." : "您确定要删除该国家吗？此操作无法撤消";
+
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_taxonomy_term_countries_delete_form_submit';
+}
+
+/**
+ * Custom submit handler for add country form.
+ */
+function _Compliancegpsmodule_taxonomy_term_countries_delete_form_submit($form, FormStateInterface $form_state) {
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Country %name has been deleted!", ["%name" => $form_state->getValue('name')[0]['value']]), 'status');
+        }
+    }
+    $form_state->setRedirect('view.admin_country_list.page_1');
+}
+
+function Compliancegpsmodule_form_taxonomy_term_categories_delete_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+
+    $form['actions']['submit']['#attributes']['class'][]  = 'custom-class-category-delete';
+    $form['actions']['cancel']['#attributes']['class'][]  = 'custom-class-category-cancel';
+
+    $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+
+    $form['description']['#markup'] = $language == "en" ? "Deleting a category will delete all its children if there are any. This action cannot be undone." : "删除一个类别将删除其所有子项，如果有的话。此操作无法撤消";
+    $form['deleted_translations']['#title'] = "The following translations will be deleted:";
+
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_taxonomy_term_categories_delete_form_submit';
+}
+
+/**
+ * Custom submit handler for add country form.
+ */
+function _Compliancegpsmodule_taxonomy_term_categories_delete_form_submit($form, FormStateInterface $form_state) {
+
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Category %name has been deleted!", ["%name" => $form_state->getValue('name')[0]['value']]), 'status');
+        }
+    }
+    $form_state->setRedirect('view.category_list.page_1');
+}
+
+function Compliancegpsmodule_form_node_new_category_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+     
+   $form['#attributes']['class'][] = 'custom-class-add-category-content';
+   $form['body']['#attributes']['class'][] = 'custom-class-add-category-body';
+   $form['actions']['unpublish']['#attributes']['class'][]  = 'custom-class-add-category-content-unpublish';
+   $form['actions']['publish']['#attributes']['class'][]  = 'custom-class-add-category-content-publish';
+   $form['actions']['preview']['#attributes']['class'][]  = 'custom-class-add-category-content-preview';
+
+   $form['actions']['publish']['#submit'][] = '_Compliancegpsmodule_node_new_category_form_submit';
+}
+
+function _Compliancegpsmodule_node_new_category_form_submit($form, FormStateInterface $form_state) {
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Content has been added!"), 'status');
+        }
+    }
+    $form_state->setRedirect('view.category_content.page_1');
+}
+
+function Compliancegpsmodule_form_node_new_category_edit_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+    $form['#attributes']['class'][] = 'custom-class-edit-category-content';
+    $form['body']['#attributes']['class'][] = 'custom-class-edit-category-body';
+    $form['actions']['unpublish']['#attributes']['class'][]  = 'custom-class-edit-category-content-unpublish';
+    $form['actions']['publish']['#attributes']['class'][]  = 'custom-class-edit-category-content-publish';
+    $form['actions']['preview']['#attributes']['class'][]  = 'custom-class-edit-category-content-preview';
+    
+    $form['actions']['publish']['#submit'][] = '_Compliancegpsmodule_node_new_category_edit_form_submit';
+}
+
+function _Compliancegpsmodule_node_new_category_edit_form_submit($form, FormStateInterface $form_state) {
+    
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Content has been edited!"), 'status');
+        }
+    }
+    $form_state->setRedirect('view.category_content.page_1');
+}
+
+function Compliancegpsmodule_form_node_new_category_delete_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+   
+  $form['actions']['submit']['#attributes']['class'][]  = 'custom-class-category-content-delete';
+  $form['actions']['cancel']['#attributes']['class'][]  = 'custom-class-category-content-cancel';
+ $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+
+    $form['description']['#markup'] = $language == "en" ? "Are you sure you want to delete the content? This action cannot be undone." : "你确定要删除内容吗？此操作无法撤消";
+
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_node_new_category_delete_form_submit';
+}
+
+function _Compliancegpsmodule_node_new_category_delete_form_submit($form, FormStateInterface $form_state) {
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("content has been deleted!"), 'status');
+        }
+    }
+}
+
+/* Manage links delete alter */
+
+function Compliancegpsmodule_form_node_manage_links_delete_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+    $form['actions']['submit']['#attributes']['class'][]  = 'custom-class-manage-link-delete';
+    $form['actions']['cancel']['#attributes']['class'][]  = 'custom-class-manage-link-cancel';
+    $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+
+    $form['description']['#markup'] = $language == "en" ? "Are you sure you want to delete this legal link? This action cannot be undone." : "您确定要删除此合法链接吗？此操作无法撤消";
+
+    $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_node_manage_links_delete_form_submit';
+}
+
+function _Compliancegpsmodule_node_manage_links_delete_form_submit($form, FormStateInterface $form_state) {
+    $statusMsgQueue = drupal_get_messages('status', TRUE);
+
+    foreach ($statusMsgQueue as $index => $msgText) {
+        if ($index == 'status') {
+            drupal_set_message(t("Legal link has been deleted!"), 'status');
+        }
+    }
+}
+
+/*Manage links edit alter*/
+function Compliancegpsmodule_form_node_manage_links_edit_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id){
+  
+  $form['#attributes']['class'][] = 'custom-class-edit-link';
+  $form['actions']['unpublish']['#attributes']['class'][] = 'custom-class-edit-link-unpublish';
+  $form['actions']['submit']['#submit'][] = '_Compliancegpsmodule_node_manage_links_edit_form_submit';
+}
+function _Compliancegpsmodule_node_manage_links_edit_form_submit($form, FormStateInterface $form_state) {
+
+       $form_state->setRedirect('view.manage_links_admin.page_1');
+}
+
+function Compliancegpsmodule_views_pre_render(\Drupal\views\ViewExecutable $view) {
+    if ($view->id() == 'homepage') {
+        $request = \Drupal::request();
+        $current_path = $request->getPathInfo();
+        $exploded_arr = explode("/", $current_path);
+        if ((isset($exploded_arr[1]) && $exploded_arr[1] == "homepage") && (isset($exploded_arr[2]) && $exploded_arr[2] != "")) {
+            $existingUser = \Drupal\user\Entity\User::load(\Drupal::currentUser()->id());
+            // update some user property
+            $existingUser->field_country = $exploded_arr[2];
+            // save existing user
+            $existingUser->save((object) array('uid' => $existingUser->uid), (array) $existingUser);
+        }
+    }
+}
+
+function Compliancegpsmodule_form_submit_two($form, FormStateInterface $form_state) {
+
+    $selected_countries = $form_state->getValue('select_country');
+
+    $selected_countries = implode(",", $selected_countries);
+    $query_fav = db_query("SELECT distinct(uid) as fav_cntry_user FROM {flagging} where flag_id = 'favourites' and entity_id IN(" . $selected_countries . ") and entity_type = 'taxonomy_term'");
+    $records_fav = $query_fav->fetchAll();
+
+    //send push to Favorites countries
+    $selected_fav_users = array();
+    foreach ($records_fav as $record_fav) {
+        array_push($selected_fav_users, $record_fav->fav_cntry_user);
+    }
+    //end
+
+    $push_notification_message = $form_state->getValue('notification_message');
+    $query = db_query("SELECT entity_id as uids FROM {user__field_country} where field_country_target_id IN (" . $selected_countries . ") UNION SELECT entity_id as uids FROM {user__field_current_location} where field_current_location_value IN (" . $selected_countries . ")");
+    $records = $query->fetchAll();
+    foreach ($records as $record) {
+
+        //skip user from favorites list if already in array
+        if (in_array($record->uids, $selected_fav_users)) {
+            $key = array_search($record->uids, $selected_fav_users);
+            unset($selected_fav_users[$key]);
+        }
+        //end
+
+        $user_tokens = db_query("SELECT entity_id,field_device_token_value  as token FROM {user__field_device_token} where entity_id IN (" . $record->uids . ") UNION SELECT entity_id,field_website_token_value  as token FROM {user__field_website_token} where entity_id IN (" . $record->uids . ")");
+        $user_records = $user_tokens->fetchAll();
+        foreach ($user_records as $userrecord) {
+            // Token is generated by app. You'll have to send the token to Drupal.
+            global $base_url;
+            $Token = $userrecord->token;
+            //$Token = 'eedAG5Om1kI:APA91bFwBqaenJdoXTgCQ8n7tZafr3uz-KMIXjayMvlY75HR2dZ_KXxoX9VHPch-nIV6wnipZqV8Rc9LOTGLk7NHWO8AIW0vQbDADb2WmbUAaxMNFJYIvF4XYo_eM7zwYYNP41HGlrwY';
+            \Drupal::service('firebase.notification')->send($Token, [
+                'title' => 'ComplianceGPS',
+                'body' => $push_notification_message,
+                'data' => [
+                    'score' => '3x1',
+                    'date' => '2017-10-10',
+                    'optional' => 'Data is used to send silent pushes. Otherwise, optional.',
+                ],
+                'icon' => 'optional-icon',
+                'sound' => 'optional-sound',
+                'click_action' => $base_url,
+                'badge' => 1,
+            ]);
+        }
+    }
+    //Send push for remaining users from favorites list.
+    if (!empty($selected_fav_users)) {
+        $selected_fav_users = implode(",", $selected_fav_users);
+        $user_tokens = db_query("SELECT entity_id,field_device_token_value  as token FROM {user__field_device_token} where entity_id IN (" . $selected_fav_users . ") UNION SELECT entity_id,field_website_token_value  as token FROM {user__field_website_token} where entity_id IN (" . $selected_fav_users . ")");
+        $user_records = $user_tokens->fetchAll();
+
+        foreach ($user_records as $userrecord) {
+
+            // Token is generated by app. You'll have to send the token to Drupal.
+            global $base_url;
+            $Token = $userrecord->token;
+            //$Token = 'eedAG5Om1kI:APA91bFwBqaenJdoXTgCQ8n7tZafr3uz-KMIXjayMvlY75HR2dZ_KXxoX9VHPch-nIV6wnipZqV8Rc9LOTGLk7NHWO8AIW0vQbDADb2WmbUAaxMNFJYIvF4XYo_eM7zwYYNP41HGlrwY';
+            \Drupal::service('firebase.notification')->send($Token, [
+                'title' => 'ComplianceGPS',
+                'body' => $push_notification_message,
+                'data' => [
+                    'score' => '3x1',
+                    'date' => '2017-10-10',
+                    'optional' => 'Data is used to send silent pushes. Otherwise, optional.',
+                ],
+                'icon' => 'optional-icon',
+                'sound' => 'optional-sound',
+                'click_action' => $base_url,
+                'badge' => 1,
+            ]);
+        }
+    }
+
+    drupal_set_message(t('Push notification has been sent to all!'));
+}
+

@@ -1,0 +1,81 @@
+Compliancegpsmodule.push_notification_web:
+  path: '/api/update-device-tocken-device'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::updateDeviceTockenFromDevice'
+    _title: 'Update Device Tocken From Device'
+  requirements: 
+    _permission: 'access content'
+    
+Compliancegpsmodule.push_notification_app:
+  path: '/update-device-tocken-web'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::updateDeviceTockenFromWeb'
+    _title: 'Update Device Tocken From Web'
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.change_lang_app:
+  path: '/updateUserLanguage'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::updateUserLanguage'
+    _title: 'update User Language'
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.redirect_rolewise:
+  path: '/rolewiseRedirection'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::rolewiseRedirection'
+    _title: 'Rolewise Redirection'
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.push_form:
+  path: /send-push-notification
+  defaults:
+    _form: 'Drupal\Compliancegpsmodule\Form\PushNotification'
+    _title: 'Push Notification'
+  requirements:
+    _permission: 'access content'
+
+
+Compliancegpsmodule.currency_converter:
+  path: /currency-converter
+  defaults:
+    _form: 'Drupal\Compliancegpsmodule\Form\CurrencyConverter'
+    _title: 'Currency conveter'
+  requirements:
+    _permission: 'access content'
+
+Compliancegpsmodule.datewise_req:
+  path: 'api/datewise-updates'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::termsUpdateDatewise'
+    _title: 'terms update are availability after date'
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.update_countries:
+  path: 'api/update-countries'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::updateFavourites'
+    _title: 'update favourite and default country. '
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.user_details:
+  path: 'api/user-details'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::userDetails'
+    _title: 'returns user details. '
+  requirements: 
+    _permission: 'access content'
+
+Compliancegpsmodule.current_location_updte:
+  path: 'api/user-location-update'
+  defaults:
+    _controller: 'Drupal\Compliancegpsmodule\Controller\CompliancegpsmoduleController::updateLocation'
+    _title: 'update user curent location. '
+  requirements: 
+    _permission: 'access content'
+

@@ -1,0 +1,167 @@
+<?php
+
+/**
+   * @file
+   * Contains \Drupal\resume\Form\ResumeForm.
+    */
+
+namespace Drupal\Compliancegpsmodule\Form;
+
+use Drupal\Core\Form\FormBase;
+use Drupal\Core\Form\FormStateInterface;
+
+class PushNotification extends FormBase {
+
+    /**
+     * {@inheritdoc}
+     */
+    public function getFormId() {
+        return 'push_notificatin_form';
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function buildForm(array $form, FormStateInterface $form_state) {
+
+	$vocabulary = 'countries';
+	$language = \Drupal::languageManager()->getCurrentLanguage()->getId();
+	$query = \Drupal::entityQuery('taxonomy_term');
+	$query->condition('vid', $vocabulary);
+	$query->sort('weight');
+	$tids = $query->execute();
+	$terms = \Drupal\taxonomy\Entity\Term::loadMultiple($tids);
+	$no_value = $language == "en" ? "--Select country--" : "--选择国家--";
+	$error_msg = $language == "en" ? "Please select country" : "请选择国家";
+	$countries = array("0" => $no_value);
+
+	foreach($terms as $term) {
+    		if($term->hasTranslation($language)){
+        		$tid = $term->id();
+        		$translated_term = \Drupal::service('entity.repository')->getTranslationFromContext($term, $language);
+        		$countries[$tid] = $translated_term->getName();
+    		}
+	}
+
+  	$language == "en" ? $language : "zh-hans";
+        $form['notification_message'] = array(
+            '#type' => 'textarea',
+            '#title' => $language == "en" ? $this->t('Notification message') : $this->t('通知消息'),
+            '#required' => TRUE,
+        );
+
+        $form['select_country'] = array(
+            '#type' => 'select',
+            '#title' => $language == "en" ? $this->t('Select country') : $this->t('选择国家'),
+            '#options' => $countries,
+            '#required' => TRUE,
+            '#multiple' => TRUE,
+        );
+
+        $form['actions']['#type'] = 'actions';
+        $form['actions']['submit'] = array(
+            '#type' => 'submit',
+            '#value' => $language == "en" ? $this->t('Send') : $this->t('发送'),
+            '#button_type' => 'primary',
+            '#name' => 'op2',
+            '#attributes' => array('class' => array('custom-class-push-send')),
+        );
+        $form['actions']['submit2'] = array(
+            '#type' => 'submit',
+            '#value' => $language == "en" ? $this->t('Send to all') : $this->t('发送给所有人'),
+            '#submit' => array('Compliancegpsmodule_form_submit_two'),
+            '#attributes' => array(
+                'class' => array('custom-class-push-send-all'),
+                'onclick' => "jQuery('#edit-select-country option').prop('selected', true);"),
+        );
+        return $form;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function validateForm(array &$form, FormStateInterface $form_state) {
+        $selected_countries = $form_state->getValue('select_country');
+        if (count($selected_countries) == 1 && isset($selected_countries[0])) {
+            $form_state->setErrorByName('select_country', $this->t("Please select country"));
+        }
+    }
+
+    public function submitForm(array &$form, FormStateInterface $form_state) {
+//         drupal_set_message($this->t('@can_name ,Your application is being submitted!', array('@can_name' => $form_state->getValue('candidate_name'))));
+
+        $selected_countries = $form_state->getValue('select_country');
+
+        $selected_countries = implode(",", $selected_countries);
+
+	$query_fav = db_query("SELECT distinct(uid) as fav_cntry_user FROM {flagging} where flag_id = 'favourites' and entity_id IN(" . $selected_countries . ") and entity_type = 'taxonomy_term'");
+        $records_fav = $query_fav->fetchAll();
+
+        $selected_fav_users = array();
+        foreach ($records_fav as $record_fav) {
+            array_push($selected_fav_users, $record_fav->fav_cntry_user);
+        }
+                        
+        $push_notification_message = $form_state->getValue('notification_message');
+        $query = db_query("SELECT entity_id as uids FROM {user__field_country} where field_country_target_id IN (" . $selected_countries . ") UNION SELECT entity_id as uids FROM {user__field_current_location} where field_current_location_value IN (" . $selected_countries . ")");
+        $records = $query->fetchAll(); 
+        foreach ($records as $record) {
+          if (in_array($record->uids, $selected_fav_users)) {
+                $key = array_search($record->uids, $selected_fav_users);
+                unset($selected_fav_users[$key]);
+            }
+            $user_tokens =  db_query("SELECT entity_id,field_device_token_value  as token FROM {user__field_device_token} where entity_id IN (" . $record->uids . ") UNION SELECT entity_id,field_website_token_value  as token FROM {user__field_website_token} where entity_id IN (" . $record->uids . ")");
+                          $user_records = $user_tokens->fetchAll();
+           
+            foreach ($user_records as $userrecord) {
+
+                // Token is generated by app. You'll have to send the token to Drupal.
+                global $base_url;
+                $Token = $userrecord->token;
+                //$Token = 'eedAG5Om1kI:APA91bFwBqaenJdoXTgCQ8n7tZafr3uz-KMIXjayMvlY75HR2dZ_KXxoX9VHPch-nIV6wnipZqV8Rc9LOTGLk7NHWO8AIW0vQbDADb2WmbUAaxMNFJYIvF4XYo_eM7zwYYNP41HGlrwY';
+                \Drupal::service('firebase.notification')->send($Token, [
+                    'title' => 'ComplianceGPS',
+                    'body' => $push_notification_message,
+                    'data' => [
+                        'score' => '3x1',
+                        'date' => '2017-10-10',
+                        'optional' => 'Data is used to send silent pushes. Otherwise, optional.',
+                    ],
+                    'icon' => 'optional-icon',
+                    'sound' => 'optional-sound',
+                    'click_action' => $base_url,
+                    'badge' => 1,
+                ]);
+            }
+        }
+	if (!empty($selected_fav_users)) {
+            $selected_fav_users = implode(",", $selected_fav_users);
+            $user_tokens = db_query("SELECT entity_id,field_device_token_value  as token FROM {user__field_device_token} where entity_id IN (" . $selected_fav_users . ") UNION SELECT entity_id,field_website_token_value  as token FROM {user__field_website_token} where entity_id IN (" . $selected_fav_users . ")");
+            $user_records = $user_tokens->fetchAll();
+
+            foreach ($user_records as $userrecord) {
+
+                // Token is generated by app. You'll have to send the token to Drupal.
+                global $base_url;
+                $Token = $userrecord->token;
+                //$Token = 'eedAG5Om1kI:APA91bFwBqaenJdoXTgCQ8n7tZafr3uz-KMIXjayMvlY75HR2dZ_KXxoX9VHPch-nIV6wnipZqV8Rc9LOTGLk7NHWO8AIW0vQbDADb2WmbUAaxMNFJYIvF4XYo_eM7zwYYNP41HGlrwY';
+                \Drupal::service('firebase.notification')->send($Token, [
+                    'title' => 'ComplianceGPS',
+                    'body' => $push_notification_message,
+                    'data' => [
+                        'score' => '3x1',
+                        'date' => '2017-10-10',
+                        'optional' => 'Data is used to send silent pushes. Otherwise, optional.',
+                    ],
+                    'icon' => 'optional-icon',
+                    'sound' => 'optional-sound',
+                    'click_action' => $base_url,
+                    'badge' => 1,
+                ]);
+            }
+        }
+
+        drupal_set_message($this->t('Push notification has been sent!'));
+    }
+
+}
